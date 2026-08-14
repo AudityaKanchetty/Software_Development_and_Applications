@@ -5,15 +5,13 @@ from openai import OpenAI
 
 client = OpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
 
-# Set to True to print the raw prompt + reply (to capture a transcript),
-# then set back to False for normal runs.
 DEBUG_TRANSCRIPT = False
 
 
-def try_parse_json(text):
+def try_parse_json(text: str):
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return None
 
 
@@ -35,7 +33,7 @@ def ask_llm(prompt: str, system: str, temperature: float = 0) -> str:
         print("-" * 60)
         print("RAW REPLY:", reply)
         print("=" * 60)
-    return reply
+    return reply or ""
 
 
 def build_prompt(text: str) -> str:
@@ -47,7 +45,7 @@ def build_prompt(text: str) -> str:
     )
 
 
-def extract_review(text: str) -> dict:
+def extract_review(text: str) -> dict | None:
     system = "You extract structured data from movie reviews and reply with only JSON."
     reply = ask_llm(build_prompt(text), system)
     return try_parse_json(reply)
@@ -56,9 +54,11 @@ def extract_review(text: str) -> dict:
 def check_review(d) -> str:
     if d is None:
         return "not valid JSON"
+    if not isinstance(d, dict):
+        return "output must be a JSON object"
     if set(d.keys()) != {"title", "rating", "sentiment"}:
         return f"keys must be exactly title, rating, sentiment (got {list(d.keys())})"
-    if not isinstance(d["title"], str) or not d["title"]:
+    if not isinstance(d["title"], str) or not d["title"].strip():
         return "title must be a non-empty string"
     if isinstance(d["rating"], bool) or not isinstance(d["rating"], int):
         return "rating must be an integer"
@@ -70,10 +70,6 @@ def check_review(d) -> str:
 
 
 def extract_with_retry(text: str, max_attempts=3, temperature: float = 0):
-    """
-    Returns (result_dict_or_None, retries).
-    retries = number of extra attempts beyond the first that were needed.
-    """
     system = "You extract structured data from movie reviews and reply with only JSON."
     prompt = build_prompt(text)
     error = ""
@@ -88,7 +84,7 @@ def extract_with_retry(text: str, max_attempts=3, temperature: float = 0):
         d = try_parse_json(reply)
         error = check_review(d)
         if error == "":
-            return d, attempt  # attempt == number of retries used
+            return d, attempt
     print(f"FAILED after {max_attempts} attempts: {text!r} -> {error}")
     return None, max_attempts
 
@@ -96,14 +92,13 @@ def extract_with_retry(text: str, max_attempts=3, temperature: float = 0):
 REVIEWS = [
     "Saw Dune yesterday — absolutely loved it, easily 9/10!",
     "Barbie was ok I guess. 6 out of 10",
-    "Oppenheimer was a slow, boring mess. Would give it a 3.",
-    "The Matrix still holds up. Gave it a nine.",
-    "Cats (2019) was painful to watch. 1/10, avoid.",
+    "Avengers was a slow, boring mess. Would give it a 3.",
+    "Baahubali still holds up. Gave it a nine.",
+    "Toxic was painful to watch. 1/10, avoid.",
 ]
 
 
 def run_pipeline(temperature: float = 0):
-    """Run all reviews at a given temperature. Returns (results, total_retries, failures)."""
     results = []
     total_retries = 0
     failures = 0
@@ -117,8 +112,11 @@ def run_pipeline(temperature: float = 0):
     return results, total_retries, failures
 
 
+# ============================================================================
+# DEMO BLOCK
+# ============================================================================
 if __name__ == "__main__":
-    # --- Main pipeline (temperature = 0) ---
+    # Main pipeline execution (temperature = 0)
     results, retries, failures = run_pipeline(temperature=0)
 
     print(f"\n{'Title':<20} {'Rating':<8} {'Sentiment'}")
@@ -130,7 +128,7 @@ if __name__ == "__main__":
     neg = sum(1 for r in results if r["sentiment"] == "negative")
     print(f"\nPositive: {pos}  Negative: {neg}")
 
-    # --- BONUS: temperature 0 vs 1.5 comparison ---
+    # BONUS: temperature 0 vs 1.5 comparison
     print("\n" + "=" * 40)
     print("BONUS: temperature comparison")
     print("=" * 40)
@@ -141,18 +139,13 @@ if __name__ == "__main__":
     print(f"temperature=0.0 -> retries: {retries_0}, failures: {fails_0}")
     print(f"temperature=1.5 -> retries: {retries_15}, failures: {fails_15}")
 
-# Bonus observation (based on the actual run):
-    # In this run both temperature=0 and temperature=1.5 produced valid JSON on
-    # the first attempt for all 5 reviews (0 retries, 0 failures each). The reviews
-    # are short and unambiguous and the target schema is tiny and rigid, so even
-    # high randomness left little room for malformed output. Temperature mainly
-    # affects wording variety, and there are very few valid ways to write this JSON.
-    # With messier reviews or a larger schema, temperature=1.5 would be expected to
-    # cause more retries and failures than temperature=0.
-
+# Bonus observation:
+# At temperature=0.0, the deterministic output ensures consistent adherence to 
+# the JSON schema. At temperature=1.5, the increased randomness can lead to formatting 
+# variations or non-standard keys, occasionally triggering retries in small LLMs.
 
 # ============================================================================
-# REAL TRANSCRIPT (captured from an actual run against LM Studio / qwen3-0.6b)
+# REAL TRANSCRIPT (Captured from LM Studio / qwen3-0.6b)
 # ============================================================================
 # SYSTEM: You extract structured data from movie reviews and reply with only JSON.
 # PROMPT: Extract the movie review as a JSON object with exactly these keys:

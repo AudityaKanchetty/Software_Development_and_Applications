@@ -7,38 +7,40 @@ grades = {
 }
 
 
-def subjects_of(student) -> set:
+def subjects_of(student: str, grades: dict = grades) -> set:
     return {subject for subject, students in grades.items() if student in students}
 
 
-def takes_all(grades) -> set:
-    subject_dicts = list(grades.values())
-    if not subject_dicts:
+def takes_all(grades: dict) -> set:
+    if not grades:
         return set()
-    result = set(subject_dicts[0].keys())
-    for d in subject_dicts[1:]:
-        result &= set(d.keys())
-    return result
+    # Pure set intersection across all subjects
+    subject_sets = [set(students.keys()) for students in grades.values()]
+    return set.intersection(*subject_sets)
 
 
-def student_average(grades, student) -> float:
+def student_average(grades: dict, student: str) -> float:
     student_grades = [students[student] for students in grades.values() if student in students]
     if not student_grades:
         return 0.0
     return round(sum(student_grades) / len(student_grades), 2)
 
 
-def honor_roll(grades, limit=1.5) -> list:
+def honor_roll(grades: dict, limit: float = 1.5) -> list:
     all_students = set()
     for students in grades.values():
         all_students.update(students.keys())
     return sorted(s for s in all_students if student_average(grades, s) <= limit)
 
 
+# ============================================================================
+# DEMO BLOCK
+# ============================================================================
 if __name__ == "__main__":
     for name in ["anna", "ben", "clara", "david"]:
         print(f"{name} subjects:", subjects_of(name))
         print(f"{name} average:", student_average(grades, name))
+    
     print("takes all:", takes_all(grades))
     print("unknown average:", student_average(grades, "zoe"))
     print("honor roll:", honor_roll(grades))
